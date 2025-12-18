@@ -1,3 +1,12 @@
+
+data "aws_caller_identity" "current" {}
+
+locals {
+  account_id = data.aws_caller_identity.current.account_id
+  region     = var.aws_region
+}
+
+
 # ---------------
 # Lambda IAM Role
 # ---------------
@@ -27,33 +36,41 @@ resource "aws_iam_role" "lambda_role" {
 
 # Define S3 document
 data "aws_iam_policy_document" "s3_data_policy_doc" {
+  # Allow listing buckets (ListBucket must be on the bucket ARN)
+  statement {
+    effect = "Allow"
+    actions = [
+      "s3:ListBucket"
+    ]
+    resources = [
+      aws_s3_bucket.ingestion_bucket.arn,
+      aws_s3_bucket.processed_bucket.arn
+    ]
+  }
+
+  # Allow read/write objects (object actions must be on arn/*)
   statement {
     effect = "Allow"
     actions = [
       "s3:GetObject",
-      "s3:PutObject",
-      "s3:DeleteObject",
-      "s3:ListBucket"
+      "s3:PutObject"
     ]
     resources = [
-      "${aws_s3_bucket.ingestion_bucket.arn}",
-      "${aws_s3_bucket.processed_bucket.arn}",
       "${aws_s3_bucket.ingestion_bucket.arn}/*",
       "${aws_s3_bucket.processed_bucket.arn}/*"
     ]
   }
 }
-
 # Create S3 policy
-resource "aws_iam_policy" "s3_write_policy" {
+resource "aws_iam_policy" "s3_read_and_write_policy" {
   name_prefix = "s3-policy-lambda-write"
   policy      = data.aws_iam_policy_document.s3_data_policy_doc.json 
 }
 
 # Attach s3 policy to the lambda role
-resource "aws_iam_role_policy_attachment" "lambda_s3_write_policy_attachment" {
+resource "aws_iam_role_policy_attachment" "lambda_s3_policy_attachment" {
   role       = aws_iam_role.lambda_role.name
-  policy_arn = aws_iam_policy.s3_write_policy.arn
+  policy_arn = aws_iam_policy.s3_read_and_write_policy.arn
 }
 
 # ------------------------------
@@ -62,24 +79,22 @@ resource "aws_iam_role_policy_attachment" "lambda_s3_write_policy_attachment" {
 
 # Define cw doc. 
 data "aws_iam_policy_document" "cw_document" {
+  # CloudWatch Logs permissions
   statement {
     effect = "Allow"
     actions = [
       "logs:CreateLogGroup",
       "logs:CreateLogStream",
-      "logs:PutLogEvents",
-      "logs:GetLogEvents",
-      "logs:DescribeLogGroups",
-      "logs:DescribeLogStreams",
-      "logs:FilterLogEvents",
-      "logs:StartQuery",
-      "logs:GetQueryResults",
-      "cloudwatch:PutMetricData",
-      "cloudwatch:PutMetricAlarm",
-      "cloudwatch:DescribeAlarms",
-      "cloudwatch:DeleteAlarms"
+      "logs:PutLogEvents"
     ]
-    resources = ["arn:aws:logs:*"]
+    resources = ["arn:aws:logs:${local.region}:${local.account_id}:*"]
+  }
+
+  # Put custom metrics (resource-level restrictions are not supported for PutMetricData, so "*")
+  statement {
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
   }
 }
 
@@ -106,17 +121,16 @@ data "aws_iam_policy_document" "ssm_lambda_policy_documentum"{
     actions = [
         "ssm:PutParameter",
         "ssm:DeleteParameter",
-        "ssm:GetParameterHistory",
-        "ssm:GetParameter",
+        "ssm:GetParameterHistory"
         ]
-    resources = ["arn:aws:ssm:eu-west-2:${data.aws_caller_identity.current.account_id}:parameter/*"]
+    resources = ["arn:aws:ssm:${local.region}:${local.account_id}:parameter/last_checked"]
   }
 }
 
 # create ssm the policy
 resource "aws_iam_policy" "ssm_lambda_policy" {
   name = "lambda-access-ssm-policy"
-  description = "IAM policy for lambda to access ssm parameters"
+  description = "Allow lambda to read/write the last_checked SSM parameter"
   policy = data.aws_iam_policy_document.ssm_lambda_policy_documentum.json
 }
 
@@ -126,24 +140,26 @@ resource "aws_iam_role_policy_attachment" "ssm_lambda_policy_attachment" {
   policy_arn = aws_iam_policy.ssm_lambda_policy.arn
 }
 
-#-----------------------------
-# IAM policy for lambda to get credentials | secrets from Secret Manager
+
+# -----------------------------
+# Lambda permission to read db credentials from Secrets Manager ("db_creds")
+# -----------------------------
+# Lambdas should READ secrets, not create/update them.
 #-----------------------------
 
-# Define Iam role for Secret Manager
+
 data "aws_iam_policy_document" "secretsmanager_lambda_policy_document" {
   statement { 
     effect = "Allow"
     actions = [
-      "secretsmanager:CreateSecret",
+    
       "secretsmanager:PutSecretValue",
-      "secretsmanager:TagResource",
-      "secretsmanager:DescribeSecret",
-      "secretsmanager:GetSecretValue",
-      "secretsmanager:UpdateSecret"
+      "secretsmanager:DescribeSecret"
+
     ]
+    # Secret ARNs end with a random suffix; using db_creds* is common
     resources = [
-      "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:*"
+      "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:db_creds*"
     ]
   }
 }
@@ -199,7 +215,7 @@ data "aws_iam_policy_document" "step_functions_document" {
 
 # Create IAM policy for Step Function
 resource "aws_iam_policy" "step_functions_policy" {
-  name = "sf-${var.step_function}"
+  name = "sf-invoke-lambda-"
   policy = data.aws_iam_policy_document.step_functions_document.json
 }
 
@@ -209,43 +225,42 @@ resource "aws_iam_role_policy_attachment" "lambda_sf_policy_attachment" {
   policy_arn = aws_iam_policy.step_functions_policy.arn
 }
 
-#------------------------------
-# IAM Policy for Lambda and Step Function to SNS | sending email alert
-#------------------------------
+
+# SNS | sending email alerts
+# ------------------------------
+# Lambdas & Step Functions only need Publish (Terraform should create topic/subscription).
 
 # define the policy
-data "aws_iam_policy_document" "sns_alert_document" {
+data "aws_iam_policy_document" "sns_publish_document" {
   statement {
     effect = "Allow"
     actions = [ 
-      "sns:CreateTopic",
-      "sns:Publish",
-      "sns:Subscribe"
+      "sns:Publish"
      ]
     resources = [ aws_sns_topic.alerts.arn ]
   }
 }
 
 # create sns policy
-resource "aws_iam_policy" "sns_policy" {
-  name = "sns-notification-policy"
-  policy = data.aws_iam_policy_document.sns_alert_document.json
+resource "aws_iam_policy" "sns_publish_policy" {
+  name = "sns-publish-"
+  policy = data.aws_iam_policy_document.sns_publish_document.json
 }
 
 # attach sns policy to lambda
 resource "aws_iam_role_policy_attachment" "sns_attached_lambda" {
   role       = aws_iam_role.lambda_role.name
-  policy_arn = aws_iam_policy.sns_policy.arn
+  policy_arn = aws_iam_policy.sns_publish_policy.arn
 }
 
 # attach sns policy to step function
 resource "aws_iam_role_policy_attachment" "sns_attached_sf" {
   role       = aws_iam_role.step_function_role.name
-  policy_arn = aws_iam_policy.sns_policy.arn
+  policy_arn = aws_iam_policy.sns_publish_policy.arn
 }
 
 # allow eventbridge to send SNS message
-data "aws_iam_policy_document" "sns_topic_policy" {
+data "aws_iam_policy_document" "sns_topic_policy_document" {
   statement {
     effect = "Allow"
     principals {
@@ -264,9 +279,15 @@ data "aws_iam_policy_document" "sns_topic_policy" {
     condition {
       test     = "ArnEquals"
       variable = "AWS:SourceArn"
-      values   = [aws_cloudwatch_event_rule.lambda_failure_rule.arn]  # csak a cloudwatch ezen topicon
-    }
+      values   = [aws_cloudwatch_event_rule.lambda_failure_rule.arn] 
   }
+}
+
+
+resource "aws_sns_topic_policy" "alerts_topic_policy" {
+  arn    = aws_sns_topic.alerts.arn
+  policy = data.aws_iam_policy_document.sns_topic_policy_document.json
+
 }
 
 
@@ -290,21 +311,34 @@ data "aws_iam_policy_document" "scheduler_role_document" {
 
 
 # Create the role for sceduler
+
+data "aws_iam_policy_document" "scheduler_role_document" {
+  statement {
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["scheduler.amazonaws.com"]
+    }
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+
 resource "aws_iam_role" "scheduler_role" {
   name        = "scheduler-role"
   assume_role_policy = data.aws_iam_policy_document.scheduler_role_document.json
 }
 
-# defining the policy document for cheduler
+
 data "aws_iam_policy_document" "scheduler_policy_document" {
   statement {
-    effect = "Allow"
-    actions = ["states:StartExecution"]
+    effect    = "Allow"
+    actions   = ["states:StartExecution"]
     resources = [aws_sfn_state_machine.sfn_state_machine.arn]
   }
 }
 
-# Create IAM policy for scheduler 
+
 resource "aws_iam_policy" "scheduler_policy" {
   name = "scheduler-policy"
   policy = data.aws_iam_policy_document.scheduler_policy_document.json

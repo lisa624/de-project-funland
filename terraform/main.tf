@@ -7,8 +7,8 @@ terraform {
     
   }
   backend "s3" {
-    bucket = "funland-terraform-configure-1-backend"
-    key    = "folder/terraform state file"
+    bucket = "funland-terraform-configure-1-backend-45"
+    key    = "folder/terraform.tfstate"
     region = "eu-west-2"
   }
 
