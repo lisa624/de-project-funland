@@ -1,4 +1,6 @@
-# Create SNS Topic to notify about Lambda failures
+
+#SNS Topic is the “place” (channel) where alert messages are sent
+#Without a topic, there’s nowhere to publish alerts
 resource "aws_sns_topic" "alerts" {
   name = "funland-lambda-failure-topic"
 }
@@ -10,7 +12,9 @@ resource "aws_sns_topic_subscription" "email" {
   endpoint  = var.notification_email
 }
 
-# EventBridge rule to catch Lambda function failure events
+# SNS doesn’t “watch” Lambda failures by itself
+# Something needs to detect the failure and trigger the alert
+# That “something” is EventBridge (CloudWatch Events).
 resource "aws_cloudwatch_event_rule" "lambda_failure_rule" {
   name        = "funland-lambda-failure-alerts"
   description = "Trigger alert when Lambda function fails"
@@ -29,8 +33,11 @@ resource "aws_cloudwatch_event_rule" "lambda_failure_rule" {
 }
 
 # Target to send failure events to SNS topic
+# The rule detects failures, but must tell AWS what to do when it matches. This is the “target”
 resource "aws_cloudwatch_event_target" "send_to_sns" {
+  #Attach this target to failure rule
   rule      = aws_cloudwatch_event_rule.lambda_failure_rule.name
   target_id = "SendToSNS"
+  #The target is SNS topic
   arn       = aws_sns_topic.alerts.arn
 }

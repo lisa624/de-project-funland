@@ -11,7 +11,10 @@ locals {
 # Lambda IAM Role
 # ---------------
 
-# Define role: allows lambda to assume this role
+
+#This block does NOT create anything in AWS
+# It builds a JSON document that is required when creating the role. This block writes the rules
+#The role resource uses those rules to actually create the role
  data "aws_iam_policy_document" "trust_policy" {
    statement {
      effect = "Allow"
@@ -34,7 +37,7 @@ resource "aws_iam_role" "lambda_role" {
 # Lambda IAM Policy to S3
 # ------------------------------
 
-# Define S3 document
+# Build a json policy document for S3 permissions
 data "aws_iam_policy_document" "s3_data_policy_doc" {
   # Allow listing buckets (ListBucket must be on the bucket ARN)
   statement {
@@ -43,6 +46,7 @@ data "aws_iam_policy_document" "s3_data_policy_doc" {
       "s3:ListBucket"
     ]
     resources = [
+      #apply ListBucket permission to the buckets themselves
       aws_s3_bucket.ingestion_bucket.arn,
       aws_s3_bucket.processed_bucket.arn
     ]
@@ -56,12 +60,14 @@ data "aws_iam_policy_document" "s3_data_policy_doc" {
       "s3:PutObject"
     ]
     resources = [
+      # Apply to objects inside the buckets (note the /*)
       "${aws_s3_bucket.ingestion_bucket.arn}/*",
       "${aws_s3_bucket.processed_bucket.arn}/*"
     ]
   }
 }
-# Create S3 policy
+# Create an IAM policy with a name prefix
+#policy = ...json means “use the JSON from the document”
 resource "aws_iam_policy" "s3_read_and_write_policy" {
   name_prefix = "s3-policy-lambda-write"
   policy      = data.aws_iam_policy_document.s3_data_policy_doc.json 
@@ -77,7 +83,8 @@ resource "aws_iam_role_policy_attachment" "lambda_s3_policy_attachment" {
 # Lambda IAM Policy for CloudWatch
 # ------------------------------
 
-# Define cw doc. 
+
+#Build a policy document for logging/metrics.
 data "aws_iam_policy_document" "cw_document" {
   # CloudWatch Logs permissions
   statement {
@@ -115,12 +122,13 @@ resource "aws_iam_role_policy_attachment" "lambda_cw_policy_attachment" {
 # ------------------------------
 
 # define ssm policy
+#ingestion job needs to remember “what timestamp did I ingest up to
 data "aws_iam_policy_document" "ssm_lambda_policy_documentum"{
   statement {
     effect = "Allow"
     actions = [
         "ssm:PutParameter",
-        "ssm:DeleteParameter",
+        "ssm:GetParameter",
         "ssm:GetParameterHistory"
         ]
     resources = ["arn:aws:ssm:${local.region}:${local.account_id}:parameter/last_checked"]
@@ -129,7 +137,7 @@ data "aws_iam_policy_document" "ssm_lambda_policy_documentum"{
 
 # create ssm the policy
 resource "aws_iam_policy" "ssm_lambda_policy" {
-  name = "lambda-access-ssm-policy"
+  name = "lambda-ssm-last-checked-"
   description = "Allow lambda to read/write the last_checked SSM parameter"
   policy = data.aws_iam_policy_document.ssm_lambda_policy_documentum.json
 }
@@ -147,26 +155,26 @@ resource "aws_iam_role_policy_attachment" "ssm_lambda_policy_attachment" {
 # Lambdas should READ secrets, not create/update them.
 #-----------------------------
 
-
+#Lambda reads db creds from Secrets Manager.
 data "aws_iam_policy_document" "secretsmanager_lambda_policy_document" {
   statement { 
     effect = "Allow"
     actions = [
     
-      "secretsmanager:PutSecretValue",
+      "secretsmanager:GetSecretValue",
       "secretsmanager:DescribeSecret"
 
     ]
-    # Secret ARNs end with a random suffix; using db_creds* is common
+    #Allow only secrets that start with db_creds (AWS adds random suffixes)
     resources = [
       "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:db_creds*"
     ]
   }
 }
 
-# Create Iam policy for secret manager
+# Create IAM policy for secret manager
 resource "aws_iam_policy" "secretsmanager_lambda_policy" {
-  name = "lambda-secretmanager-access"
+  name = "lambda-secretmanager-read-"
   policy = data.aws_iam_policy_document.secretsmanager_lambda_policy_document.json
 }
 
@@ -180,7 +188,7 @@ resource "aws_iam_role_policy_attachment" "lambda_secretsmanager_policy_attachme
 # IAM role for Step Function to invoke Lambda
 # ------------------------------
 
-# Data for Step Function doc role
+# trust policy document
 data "aws_iam_policy_document" "sf_role_document" {
   statement {
     effect = "Allow"
@@ -219,16 +227,16 @@ resource "aws_iam_policy" "step_functions_policy" {
   policy = data.aws_iam_policy_document.step_functions_document.json
 }
 
-# attach the cw policy to the lambda role
+# attach the  policy to the step functions role
 resource "aws_iam_role_policy_attachment" "lambda_sf_policy_attachment" {
   role       = aws_iam_role.step_function_role.name
   policy_arn = aws_iam_policy.step_functions_policy.arn
 }
 
 
-# SNS | sending email alerts
+# SNS(Simple Notification Service) | sending email alerts
 # ------------------------------
-# Lambdas & Step Functions only need Publish (Terraform should create topic/subscription).
+# Lambda/StepFunctions publish to SNS topic
 
 # define the policy
 data "aws_iam_policy_document" "sns_publish_document" {
