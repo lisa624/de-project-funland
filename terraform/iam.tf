@@ -150,7 +150,7 @@ resource "aws_iam_role_policy_attachment" "ssm_lambda_policy_attachment" {
 
 
 # -----------------------------
-# Lambda permission to read db credentials from Secrets Manager ("db_creds")
+# Lambda permission to read db credentials from Secrets Manager
 # -----------------------------
 # Lambdas should READ secrets, not create/update them.
 #-----------------------------
@@ -167,7 +167,7 @@ data "aws_iam_policy_document" "secretsmanager_lambda_policy_document" {
     ]
     #Allow only secrets that start with db_creds (AWS adds random suffixes)
     resources = [
-      "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:db_creds*"
+      "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:${var.db_credentials}*"
     ]
   }
 }
