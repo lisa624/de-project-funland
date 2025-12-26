@@ -288,8 +288,10 @@ data "aws_iam_policy_document" "sns_topic_policy_document" {
       test     = "ArnEquals"
       variable = "AWS:SourceArn"
       values   = [aws_cloudwatch_event_rule.lambda_failure_rule.arn] 
+    }
   }
 }
+
 
 
 resource "aws_sns_topic_policy" "alerts_topic_policy" {
@@ -317,19 +319,6 @@ data "aws_iam_policy_document" "scheduler_role_document" {
   }
 }
 
-
-# Create the role for sceduler
-
-data "aws_iam_policy_document" "scheduler_role_document" {
-  statement {
-    effect = "Allow"
-    principals {
-      type        = "Service"
-      identifiers = ["scheduler.amazonaws.com"]
-    }
-    actions = ["sts:AssumeRole"]
-  }
-}
 
 
 resource "aws_iam_role" "scheduler_role" {

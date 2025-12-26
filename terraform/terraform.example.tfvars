@@ -1,1 +1,2 @@
-notification_email = "your email address"
+notification_email = "qukuelisa@email.com"
+db_credentials     = "totesys-readonly"

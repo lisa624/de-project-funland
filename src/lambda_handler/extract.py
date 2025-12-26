@@ -83,9 +83,9 @@ def lambda_handler(event, context):
     last_checked = get_last_checked(ssm_client)["last_checked"]
     logger.info(f"obtained last checked: {last_checked}")
     
-    
+    #Fetch DB creds
     db_credentials = get_db_credentials(sm_client)
-    logger.info(f"obtained last checked: {db_credentials}")
+    logger.info("Database credentials fetched successfully")
     
     
     db_conn = create_db_connection(db_credentials)
@@ -99,33 +99,64 @@ def lambda_handler(event, context):
                         "payment_type"]
     
     
-    ingestion_bucket = get_bucket_name()["ingestion_bucket"]
+    ingestion_bucket = get_bucket_name()
     logger.info(f"obtained ingestion bucket name: {ingestion_bucket}")
+    # Use a safe batch_id for file naming (no spaces/colons)
+    batch_id = _utc_now_iso().replace(":", "-")
+    
+    try:
+        uploaded_tables = []
 
-    
-    for table in tables_to_import:
-        column_names, new_rows = extract_new_rows(table, last_checked, db_conn)
-        logger.info(f"obtained new rows for {table}")
-        if new_rows:
-            convert_new_rows_to_df_and_upload_to_s3_as_csv(ingestion_bucket, table, column_names, new_rows,last_checked)
-            logger.info(f"uploaded csv file for {table} to s3")
-    db_conn.close()
-    logger.info(f"db connection closed")
-    
-    new_time = update_last_checked(ssm_client)
-    logger.info(f"last checked time updated:  {new_time}")
-    return {"message":"success", "timestamp_to_transform": last_checked}
+        for table in tables_to_import:
+            column_names, new_rows = extract_new_rows(table, last_checked, db_conn)
+            if new_rows:
+                convert_new_rows_to_df_and_upload_to_s3_as_csv(
+                    ingestion_bucket=ingestion_bucket,
+                    table=table,
+                    column_names=column_names,
+                    new_rows=new_rows,
+                    batch_id=batch_id
+                )
+                uploaded_tables.append(table)
+            else:
+                logger.info(f"No new rows for table={table}")
+
+        # Only update last_checked if the run succeeded
+        new_last_checked = _utc_now_iso()
+        update_last_checked(ssm_client, new_last_checked)
+        logger.info(f"Updated last_checked to: {new_last_checked}")
+
+        return {
+            "message": "success",
+            "timestamp_to_transform": last_checked,
+            "batch_id": batch_id,
+            "uploaded_tables": uploaded_tables
+        }
+
+    finally:
+        try:
+            db_conn.close()
+            logger.info("Database connection closed")
+        except Exception:
+            # Don't fail the function just because close failed
+            logger.warning("Failed to close DB connection cleanly")
 
 ##################################################################################
 # Useful functions for the Lambda Handler
 ##################################################################################
-    
+
+DEFAULT_LAST_CHECKED = "1970-01-01T00:00:00+00:00"  # used on first ever run
+
+def _utc_now_iso() -> str:
+    """Return current time in UTC as string."""
+    return datetime.now(timezone.utc).isoformat()
+
 def get_last_checked(ssm_client): # test and code complete
     """
     Summary:
     Access the aws parameter store, and obtain the last_checked parameter.
     Store the parameter and its value in a dictionary and return it.
-    
+    If it does not exist (first run), return a default old timestamp.
     Returns:
         dictionary of paramter name and value
         {"last_checked" : "2020...."}
@@ -140,28 +171,34 @@ def get_last_checked(ssm_client): # test and code complete
         return result
 
     except ssm_client.exceptions.ParameterNotFound as par_not_found_error:
-        logger.error(f"get_last_checked: The parameter was not found: {str(par_not_found_error)}")
-        raise par_not_found_error
+        logger.info("SSM parameter 'last_checked' not found. Using default start time.")
+        return {"last_checked": DEFAULT_LAST_CHECKED}
+
     except ClientError as error:
-        logger.error(f"get_last_checked: There has been an error: {str(error)}")
+        logger.error(f"get_last_checked: There has been an AWS ClientError: {str(error)}")
         raise error
     
     
    
 def get_db_credentials(sm_client): # test and code complete
     """_summary_
-    This functions should return a dictionary of all 
+    This function should return a dictionary of all 
     the db credentials obtained from secret manager
     
     Returns:
     dictionary of credentials
-    {"DB_USER":"totesys", DB_PASSWORD:".......}
+    {"user":"totesys", "password":".......}
 
     """
+    secret_name = os.environ.get("DB_SECRET_NAME")
+    if not secret_name:
+        raise ValueError("Missing environment variable DB_SECRET_NAME")
+
+
     try:
-        response = sm_client.get_secret_value(SecretId = 'db_creds')
-        db_credentials = json.loads(response["SecretString"])
-        return db_credentials
+        response = sm_client.get_secret_value(SecretId = secret_name)
+        return json.loads(response["SecretString"])
+    
 
     except sm_client.exceptions.ResourceNotFoundException as par_not_found_error:
         logger.error(f"get_last_checked: The parameter was not found: {str(par_not_found_error)}")
@@ -182,12 +219,15 @@ def create_db_connection(db_credentials): #test and code complete
     """
     try:
         return Connection(
-            user = db_credentials["DB_USER"],
-            password = db_credentials["DB_PASSWORD"],
-            database = db_credentials["DB_NAME"],
-            host = db_credentials["DB_HOST"],
-            port = db_credentials["DB_PORT"]
+            user = db_credentials["user"],
+            password = db_credentials["password"],
+            database = db_credentials["database"],
+            host = db_credentials["host"],
+            port = db_credentials["port"]
         )
+        
+    except KeyError as e:
+        raise KeyError(f"Missing key in db_credentials secret JSON: {e}") from e
     except InterfaceError as interface_error:
         logger.error(f"create_db_connection: cannot connect to database: {interface_error}")
         raise interface_error
@@ -223,7 +263,7 @@ def extract_new_rows(table_name, last_checked, db_connection):
         returns a tuple of (column_names, new_rows):
     """
     
-    last_checked_dt_obj = datetime.strptime(last_checked, "%Y-%m-%d %H:%M:%S.%f")
+    last_checked_dt_obj = datetime.fromisoformat(last_checked)
 
     if table_name in ["department"]:
         query = f"""
@@ -246,7 +286,7 @@ def extract_new_rows(table_name, last_checked, db_connection):
     
 
 
-def convert_new_rows_to_df_and_upload_to_s3_as_csv(ingestion_bucket, table, column_names, new_rows,last_checked):
+def convert_new_rows_to_df_and_upload_to_s3_as_csv(ingestion_bucket, table, column_names, new_rows,batch_id: str):
     """
     Summary:
     This function will take the column names and new row data, 
@@ -269,16 +309,18 @@ def convert_new_rows_to_df_and_upload_to_s3_as_csv(ingestion_bucket, table, colu
     #convert new rows to a dataframe
     df = pd.DataFrame(new_rows,columns=column_names)
     logger.info(f"dataframe for {table} has been created")
+
+    s3_path = f"s3://{ingestion_bucket}/{table}/{batch_id}.csv"
     #convert dataframe to a csv file
     try:
-        wr.s3.to_csv(df, f"s3://{ingestion_bucket}/{table}/{last_checked}.csv")
-        logger.info(f"{table} has been saved to s3://{ingestion_bucket}/{table}/{last_checked}.csv")
+        wr.s3.to_csv(df=df, path=s3_path, index=False)
+        logger.info(f"{table} has been saved to {s3_path}")
     except Exception as error:
-        logger.errorr(f"convert_new_rows_to_df_and_upload_to_s3_as_csv: There has been a dataframe error: {str(error)}")
+        logger.error(f"convert_new_rows_to_df_and_upload_to_s3_as_csv: There has been a dataframe error: {str(error)}")
         raise error
 
     
-def update_last_checked(ssm_client):
+def update_last_checked(ssm_client, new_value: str) -> str:
     """
     Summary:
     Initialise ssm_client using boto3.client("ssm")
@@ -288,21 +330,20 @@ def update_last_checked(ssm_client):
             
     """
 
-    now=str(datetime.now())
-
     try:
         ssm_client.put_parameter(
             Name = "last_checked",
-            Value = now,
-            Description='Timestamp of each Lambda execution',
+            Value = new_value,
+            Description="Timestamp of last successful extract Lambda execution",
             Type="String",
             Overwrite=True
         )
-        return now
-    except Exception as e:
-        logger.error(f"There has been an error: {str(e)}")
-        raise e
-    
+        return new_value
+    except ClientError as error:
+        logger.error(f"update_last_checked: AWS ClientError: {str(error)}")
+        raise
+
+
 
 
     
@@ -311,13 +352,11 @@ def get_bucket_name(): #completed with tests
     Summary : this function should obtain the ingestion bucket name from the
     environment variables and return it.
     
-    
-    Returns:
-    dict {"ingestion_bucket" : "funland-ingestion-bucket-......."}
-    
     """
 
     bucket_name = os.environ.get("S3_INGESTION_BUCKET")
-    return {"ingestion_bucket":f'{bucket_name}'}
+    if not bucket_name:
+        raise ValueError("Missing environment variable S3_INGESTION_BUCKET")
+    return bucket_name
 
     
