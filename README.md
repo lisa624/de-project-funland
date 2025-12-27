@@ -2,7 +2,8 @@
 # Funland ETL Data Platform 
 **End-to-End Cloud Data Engineering Project**
 
-This repository showcases a **production-style ETL data platform** 
+This repository showcases a **production-style ETL data platform**
+
 It demonstrates how raw transactional data can be **ingested, transformed, modelled, tested, and deployed** using modern cloud data engineering best practices.
 
 ---
