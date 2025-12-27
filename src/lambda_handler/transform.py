@@ -90,14 +90,18 @@ def dim_location(last_checked, ingestion_bucket, processed_bucket):
         return
 
     df = wr.s3.read_csv(f"s3://{ingestion_bucket}/{key}")
+
     df = df.rename(columns={"address_id": "location_id"})
     df = df.drop(columns=["Unnamed: 0", "created_at", "last_updated"], errors="ignore")
+
+    # ✅ force postal_code to string (handles 28441 and 99305-7380)
+    if "postal_code" in df.columns:
+        df["postal_code"] = df["postal_code"].astype("string")
 
     final_columns = [
         "location_id", "address_line_1", "address_line_2", "district",
         "city", "postal_code", "country", "phone"
     ]
-
     df = df[final_columns]
 
     wr.s3.to_parquet(

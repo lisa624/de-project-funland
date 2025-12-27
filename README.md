@@ -1,202 +1,184 @@
-# Data Engineering Project - Funland Team
 
-This repository contains the final team project of the North Coders Data Engineering Bootcamp, showcasing a full-stack ETL (Extract, Transform, Load) pipeline designed for real-world data engineering practice.
+# Funland ETL Data Platform 
+**End-to-End Cloud Data Engineering Project**
 
-- Data ingestion from PostgreSQL into AWS S3 data lakes.
+This repository showcases a **production-style ETL data platform** 
+It demonstrates how raw transactional data can be **ingested, transformed, modelled, tested, and deployed** using modern cloud data engineering best practices.
 
-- Transformation into star-schema format using pandas and awswrangler.
+---
 
-- Deployment managed with Infrastructure-as-Code (Terraform).
+## Project Overview
 
-- Automated testing and deployment with CI/CD pipelines via GitHub Actions and Makefile.
+The Funland ETL platform ingests operational data from a PostgreSQL source system and transforms it into a **star-schema analytics model** stored in AWS S3, ready for BI tools such as Tableau.
 
-- Monitoring, logging, and alerts integrated via AWS CloudWatch and SNS.
+### Key Capabilities
 
-- Business dashboards and insights delivered through Tableau.
+- Incremental data extraction using timestamps  
+- Cloud-native ETL using AWS Lambda and Step Functions  
+- Star-schema modelling (facts + dimensions)  
+- Parquet-based analytical storage  
+- Fully tested transformation logic  
+- Automated deployment with Terraform  
+- Observability with CloudWatch & SNS alerts  
 
+---
+
+## Architecture
 
 ![ETL Pipeline](images/mvpro.png)
 
-## Technologyies and packages
+### Data Flow
+
+1. **Extract**
+   - Lambda connects to PostgreSQL using credentials from AWS Secrets Manager
+   - Incremental extracts driven by `last_checked` timestamp (SSM Parameter Store)
+   - Raw CSV files written to the S3 *Ingestion* bucket
+
+2. **Transform**
+   - Lambda transforms raw CSVs into clean dimension & fact tables
+   - Data modelled into a **star schema**
+   - Outputs written as **Parquet** to the S3 *Processed* bucket
+
+3. **Orchestration**
+   - AWS Step Functions coordinate extract → transform
+   - Failures trigger SNS email alerts
+
+4. **Analytics**
+   - Processed data consumed by Tableau dashboards
+
+---
+
+## Tech Stack
 
 <p align="center">
-    <!-- Python -->
-    <a href="https://www.python.org/" target="_blank" rel="noreferrer" style="margin: 25px;">
-    <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original.svg" alt="python" width="100px" height="100px"/>
-    </a>
-    <!-- Terraform -->
-    <a href="https://www.terraform.io/" target="_blank" rel="noreferrer" style="margin: 25px;">
-    <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/terraform/terraform-original.svg" alt="terraform" width="100px" height="100px"/>
-    </a>
-    <!-- Amazon -->
-    <a href="https://aws.amazon.com/" target="_blank" rel="noreferrer" style="margin: 25px;">
-    <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT_6owgj8w4Bpwc1q2BNQdQ0z_LqBLw-XB0Fg&s" alt="aws" width="100px" height="100px"/>
-    </a>
-    <!-- Github Action -->
-    <a href="https://github.com/features/actions" target="_blank" rel="noreferrer" style="margin: 25px;">
-    <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTeELfqnsZAFa7QU00kjkio5nwkEP9uilZVyg&s" alt="github actions" width="100px" height="100px"/>
-    </a>
-    <!-- Git -->
-    <a href="https://git-scm.com/" target="_blank" rel="noreferrer" style="margin: 25px;">
-    <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/git/git-original.svg" alt="git" width="100px" height="100px"/>
-    </a>
+  <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/python/python-original.svg" width="80"/>
+  <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/terraform/terraform-original.svg" width="80"/>
+  <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT_6owgj8w4Bpwc1q2BNQdQ0z_LqBLw-XB0Fg&s" width="80"/>
+  <img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/git/git-original.svg" width="80"/>
 </p>
 
-<!-- Python packages list -->
-### Python packages:
-<ul>
-  <li>awswrangler 3.12.0</li>
-  <li>boto3 1.38.24</li>
-  <li>pandas 2.3.0</li>
-  <li>pg8000 1.31.2</li>
-  <li>pytest 8.3.5</li>
-  <li>urllib3 2.4.0</li>
-</ul>
+### Core Technologies
 
-## Installation 
+- Python 3.13  
+- AWS Lambda  
+- AWS S3  
+- AWS Step Functions  
+- AWS Secrets Manager  
+- AWS Systems Manager (SSM)  
+- Terraform  
+- GitHub Actions  
+- Tableau  
 
-To install this project, run:
+### Python Libraries
+
+- awswrangler  
+- boto3  
+- pandas  
+- pg8000  
+- pytest  
+
+---
+
+## Data Modelling
+
+The transformed data follows a **star schema** design:
+
+### Fact Table
+- `fact_sales_order`
+
+### Dimension Tables
+- `dim_date`
+- `dim_currency`
+- `dim_location`
+- `dim_design`
+- `dim_staff`
+- `dim_counterparty`
+
+This design supports fast analytical queries and BI-friendly reporting.
+
+---
+## Local Setup
 
 ```bash
-git clone https://github.com/sapkotahari/de-project-funland
+git clone https://github.com/lisa624/de-project-funland.git
 cd de-project-funland
-```
-
-Create a virtual environment 
-
-```python 
-python -m venv venv 
-```
-Activate your venv
-
-```python 
+python -m venv venv
 source venv/bin/activate
-```
-**Install packages** <br><br>
-Required packages are listed in our requirements.txt and can be installed using our makefile. 
-
-```bash
 make requirements
-``` 
-## Usage/Examples
-Firstly, activate your virtual environment
-
-```bash
-source venv/bin/activate
 ```
 
-To use AWS services and infrastructure, sign up to a AWS account and create a IAM user. Once this is done, extract your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
+---
 
-```bash
-export AWS_ACCESS_KEY_ID=<your key id>
-export AWS_SECRET_ACCESS_KEY=<your secret access key>
-export AWS_DEFAULT_REGION=<your default region>
+## Environment Variables (Local Testing Only)
+
+Create a `.env` file (used locally only):
+
+```env
+totesys_user=your_db_username
+totesys_password=your_db_password
+totesys_database=totesys
+totesys_host=your_db_host
+totesys_port=5432
 ```
-
-An AWS parameter needs to be put into parameter store with a parameter name of "last_checked". This parameter is a date in the format "YYYY-MM-DD HH:MM:SS:ffffff". This date should be some date before 2019, to ensure that all the data gets extracted from the database initially.\ 
-
-In AWS secret manager, your should set up a secret with the name "db_creds" with 4 key value pairs e.g.:
-
-```console
-{
-"DB_USER":<your database username>,
-"DB_PASSWORD":<your database password>,
-"DB_HOST":<your database host>,
-"DB_NAME":<your database name>,
-"DB_PORT":<your database port>
-}
-```
-
-
-Now your aws account is linked to your local terminal and you are ready to navigate to the terraform directory
-
-```bash
-cd terraform
-```
-
-In this directory, an initialisation is needed to download the required hashicorp version and to setup the location of the terraform state file remotely. To accomplish this, we run:
-
-```bash
-terraform init
-```
-
-Once this finished, we are ready to see a plan of the infrastructure and its availability:
-
-```bash
-terraform plan
-```
-
-Be sure that all the information looks correct, and we are ready to deploy!! Run:
-
-```bash
-terraform apply
-```
-
-All the infrastructure should be created (ingestion and processed buckets, ETL lambdas and a step function to facilitate them, alongside the necessary roles and cloudwatch logs and notification systems):
-
-```console
-
-Apply complete! Resources: 1 added, 0 changed, 1 destroyed.
-
-Outputs:
-
-notification_email = "<email to receive error notifications>"
-
-```
-
-
-To see the infrastructure, we can use AWS CLI to view our buckets:
-
-```bash
-aws s3 ls
-```
-
-
-example output:
-
-```console
-2025-05-28 10:24:59 <ingestion-bucket-name>
-2025-05-28 10:24:59 <processed-bucket-name>
-```
-
-And checking the AWS console for our state machine we can see:
-
-![Alt text](/images/SF_image.png "This is a image of the state machine after it has ran a ETL process.")
-
-
-
-
-## Running Tests
-
-Setup an .env file with the following values:
-
-```console
-totesys_user=<your database username >
-totesys_password=<your database password>
-totesys_database=<your database database>
-totesys_host=<your database host>
-totesys_port=<your database port>
-```
-
-Add the given PYTHONPATH to your environment variables:
 
 ```bash
 export PYTHONPATH=$(pwd)
 ```
 
-
-To run tests, run the following command:
-
-```bash
-   make unit-test
-```
-To run all checks (tests, linting, security and coverage), run the following command:
+---
+## AWS Setup
 
 ```bash
-   make run-checks
+export AWS_ACCESS_KEY_ID=your_access_key
+export AWS_SECRET_ACCESS_KEY=your_secret_key
+export AWS_DEFAULT_REGION=eu-west-2
 ```
 
+---
 
+## AWS Secrets Manager
+
+Create a secret (example name: `totesys-readonly`) with:
+
+```json
+{
+  "user": "...",
+  "password": "...",
+  "host": "...",
+  "database": "totesys",
+  "port": 5432
+}
+```
+
+---
+
+## Terraform Deployment
+
+```bash
+cd terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+---
+## Running Tests
+
+```bash
+make unit-test
+make run-checks
+```
+
+---
+
+## Verification
+
+- Check Step Functions execution
+- Review CloudWatch logs
+- Confirm files in S3 buckets
+- Validate SNS alerts
+
+---
 
 ## Visuals
 
@@ -235,6 +217,4 @@ We also used the following resources and tools throughout the project:
 - [@sapkotahari](https://github.com/sapkotahari)
 - [@sarah-larkin](https://github.com/sarah-larkin)
 - [@shayanshater](https://github.com/shayanshater)
-
-
 
