@@ -1,4 +1,4 @@
-# add scedule fo step function | state machine
+# add schedule fo step function | state machine
 resource "aws_scheduler_schedule" "trigger_15_min_intervals" {  
   name       = "my-step-function-scheduler"
 

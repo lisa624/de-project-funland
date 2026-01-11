@@ -18,51 +18,26 @@ logger.setLevel(logging.INFO)
     
 
 def lambda_handler(event, context):
-    """ summary
-    
-    - obtain last_checked via ssm and store in a variable 
+    """ 
+    - get last_checked via ssm and store in a variable 
     (in a specified timezone).
     Store this in a variable so that it can be 
     passed onto the next lambda handler(Transform) in order to 
     transform the newly updated rows.
-        tests:
-        - check that last_checked is a datetime in the past and not in the future in the given time zone?
-        - check, change, check to see of obtaining is dynamic?
-        
+    
     
     - obtain db_creds via secret manager and store in a variable
-        tests:
-        - check the password is a string and the port is an int etc. 
-    
+        
     - create db connection using db creds
-        tests:
-        - check that successful connection is made.
-        - check for a unsuccessful connection.
-    
+        
     - query for the new data using connection and last_checked
-        test:
-        - test that query list is same length as number of tables.
-        - test that the rows that are chosen have a last_updated 
-        date after our last_checked date.
-        (checking each last_updated cloumn in a for loop)
         
     -format the data into a pandas df and upload to s3 bucket.
-        test:
-        - test that the file exists
-        - test that the content is valid
-    
+        
     - update last checked variable ## figure out where to do this step so we have access to the latest files for transform step.
-        test:
-        - test to see if the function updates the 
-        variable in the parameter store as expected
-    
-   
-    
+        
     - obtain bucket name
-        test:
-        - that the bucket name starts with funland-ingestion-bucket-...... where the rest is numbers.
     
-
     
 
     Args:
@@ -71,14 +46,11 @@ def lambda_handler(event, context):
         
     Returns:
         dictionary
-        Optional:
-            - maybe the old timestamp?
-            - maybe a success message?
             {"timestamp":"2020....", "message":"extract successful"}
     """
     ssm_client=boto3.client("ssm")
     sm_client=boto3.client("secretsmanager")
-    logger.info("created s3 clients")
+    logger.info("created ssm and secrets manager clients")
     
     last_checked = get_last_checked(ssm_client)["last_checked"]
     logger.info(f"obtained last checked: {last_checked}")
@@ -151,9 +123,9 @@ def _utc_now_iso() -> str:
     """Return current time in UTC as string."""
     return datetime.now(timezone.utc).isoformat()
 
-def get_last_checked(ssm_client): # test and code complete
+def get_last_checked(ssm_client):
     """
-    Summary:
+
     Access the aws parameter store, and obtain the last_checked parameter.
     Store the parameter and its value in a dictionary and return it.
     If it does not exist (first run), return a default old timestamp.
@@ -180,8 +152,8 @@ def get_last_checked(ssm_client): # test and code complete
     
     
    
-def get_db_credentials(sm_client): # test and code complete
-    """_summary_
+def get_db_credentials(sm_client):
+    """
     This function should return a dictionary of all 
     the db credentials obtained from secret manager
     
@@ -201,17 +173,17 @@ def get_db_credentials(sm_client): # test and code complete
     
 
     except sm_client.exceptions.ResourceNotFoundException as par_not_found_error:
-        logger.error(f"get_last_checked: The parameter was not found: {str(par_not_found_error)}")
+        logger.error(f"get_db_credentials: The parameter was not found: {str(par_not_found_error)}")
         raise par_not_found_error
     except ClientError as error:
-        logger.error(f"get_last_checked: There has been an error: {str(error)}")
+        logger.error(f"get_db_credentials: There has been an error: {str(error)}")
         raise error
 
 
-def create_db_connection(db_credentials): #test and code complete
-    """ Summary:
+def create_db_connection(db_credentials):
+    """ 
     Connect to the totesys database using credentials fetched from 
-    AWS Parameter Store (a separate function employed for this purpose).
+    AWS Parameter Store
     Uses Connection module from pg8000.native library 
     (from pg8000.native import Connection)
 
@@ -238,7 +210,6 @@ def create_db_connection(db_credentials): #test and code complete
 
 def extract_new_rows(table_name, last_checked, db_connection): 
     """ 
-    Summary :
         Use connection object to query for rows in a given table where 
         the last_updated is after our last_checked variable.
         
@@ -275,7 +246,10 @@ def extract_new_rows(table_name, last_checked, db_connection):
     """
            
     try:
+        #SQL query results have two parts
+        # 1.The data (rows)
         new_rows = db_connection.run(query)
+        # 2.The schema (column names + types)
         column_names = [column['name'] for column in db_connection.columns]
         return column_names, new_rows
     except DatabaseError as db_error:
@@ -288,13 +262,10 @@ def extract_new_rows(table_name, last_checked, db_connection):
 
 def convert_new_rows_to_df_and_upload_to_s3_as_csv(ingestion_bucket, table, column_names, new_rows,batch_id: str):
     """
-    Summary:
     This function will take the column names and new row data, 
     and create a pandas dataframe from this.
     From here, this dataframe is uploaded directly to given s3 bucket as
     a csv file.
-    
-
     Args:
         ingestion_bucket (str): name of the ingestion bucket
         table (str): name of the table with the new data
@@ -322,7 +293,6 @@ def convert_new_rows_to_df_and_upload_to_s3_as_csv(ingestion_bucket, table, colu
     
 def update_last_checked(ssm_client, new_value: str) -> str:
     """
-    Summary:
     Initialise ssm_client using boto3.client("ssm")
     Use AWS parameter store to access/update the 'last_checked' parameter
     Use .put_parameter method to update (using Overwrite=TRUE) 
@@ -345,11 +315,9 @@ def update_last_checked(ssm_client, new_value: str) -> str:
 
 
 
-
-    
-def get_bucket_name(): #completed with tests
+def get_bucket_name():
     """
-    Summary : this function should obtain the ingestion bucket name from the
+    this function should obtain the ingestion bucket name from the
     environment variables and return it.
     
     """

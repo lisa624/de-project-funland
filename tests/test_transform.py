@@ -136,8 +136,6 @@ class TestDimStaff:
 
         df_out = wr.s3.read_parquet(f"s3://{processed}/dim_staff/{last_checked}.parquet")
 
-        # New transform.py keeps order: staff fields then dept fields, after drops:
-        # staff_id, first_name, last_name, email_address, department_name, location
         df_expected = pd.DataFrame(
             [[1, "Jeremie", "Franey", "jeremie.franey@terrifictotes.com", "Purchasing", "Manchester"]],
             columns=["staff_id", "first_name", "last_name", "email_address", "department_name", "location"]
@@ -178,7 +176,7 @@ class TestDimLocation:
         df_out = df_out.replace({np.nan: None})
         df_expected = df_expected.replace({np.nan: None})
 
-        # ✅ IMPORTANT: parquet can load numeric-looking postal codes as ints (28441) instead of strings ("28441")
+        #parquet can load numeric-looking postal codes as ints (28441) instead of strings ("28441")
         # Force both to string so the values compare equal.
         df_out["postal_code"] = df_out["postal_code"].astype(str)
         df_expected["postal_code"] = df_expected["postal_code"].astype(str)
@@ -220,7 +218,6 @@ class TestDimCounterparty:
 
         df_out = wr.s3.read_parquet(f"s3://{processed}/dim_counterparty/{last_checked}.parquet").replace({np.nan: None})
 
-        # New transform.py keeps address_id (does NOT drop it)
         df_expected = pd.DataFrame(
             [[1, "Fahey and Sons", 15,
               "605 Haskell Trafficway", "Axel Freeway", None,
@@ -241,7 +238,7 @@ class TestDimCounterparty:
 
         # Compare as sets + values
         assert set(df_out.columns) == set(df_expected.columns)
-        df_out = df_out[df_expected.columns]  # align order
+        df_out = df_out[df_expected.columns] 
         assert_frame_equal(df_out.reset_index(drop=True), df_expected, check_dtype=False)
 
 
@@ -261,7 +258,6 @@ class TestDimDate:
         assert df_out.shape == (6, 8)
         assert list(df_out.columns) == ["date_id", "year", "month", "day", "day_of_week", "day_name", "month_name", "quarter"]
 
-        # Spot check first & last date
         assert pd.Timestamp("2022-11-10") == df_out.iloc[0]["date_id"]
         assert pd.Timestamp("2022-11-15") == df_out.iloc[-1]["date_id"]
 
@@ -293,7 +289,6 @@ class TestFactSalesOrder:
 
         df_out = wr.s3.read_parquet(f"s3://{processed}/fact_sales_order/{last_checked}.parquet")
 
-        # Check a few critical values (avoid dtype issues from parquet)
         row = df_out.iloc[0]
 
         assert int(row["sales_record_id"]) == 2

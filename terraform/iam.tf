@@ -11,9 +11,8 @@ locals {
 # Lambda IAM Role
 # ---------------
 
-
-#This block does NOT create anything in AWS
-# It builds a JSON document that is required when creating the role. This block writes the rules
+# This block does NOT create anything in AWS
+# It builds a JSON document (“trust policy”) that is required when creating the role. This block writes the rules
 #The role resource uses those rules to actually create the role
  data "aws_iam_policy_document" "trust_policy" {
    statement {
@@ -34,7 +33,7 @@ resource "aws_iam_role" "lambda_role" {
 }
 
 # ------------------------------
-# Lambda IAM Policy to S3
+# Lambda permissions to use S3 (read/write data)
 # ------------------------------
 
 # Build a json policy document for S3 permissions
@@ -60,13 +59,13 @@ data "aws_iam_policy_document" "s3_data_policy_doc" {
       "s3:PutObject"
     ]
     resources = [
-      # Apply to objects inside the buckets (note the /*)
+      # Apply to objects inside the buckets (need the /*)
       "${aws_s3_bucket.ingestion_bucket.arn}/*",
       "${aws_s3_bucket.processed_bucket.arn}/*"
     ]
   }
 }
-# Create an IAM policy with a name prefix
+# Create a real IAM policy from that JSON with a name prefix
 #policy = ...json means “use the JSON from the document”
 resource "aws_iam_policy" "s3_read_and_write_policy" {
   name_prefix = "s3-policy-lambda-write"
@@ -151,9 +150,7 @@ resource "aws_iam_role_policy_attachment" "ssm_lambda_policy_attachment" {
 
 # -----------------------------
 # Lambda permission to read db credentials from Secrets Manager
-# -----------------------------
-# Lambdas should READ secrets, not create/update them.
-#-----------------------------
+# ----------------------------
 
 #Lambda reads db creds from Secrets Manager.
 data "aws_iam_policy_document" "secretsmanager_lambda_policy_document" {
@@ -167,7 +164,8 @@ data "aws_iam_policy_document" "secretsmanager_lambda_policy_document" {
     ]
     #Allow only secrets that start with db_creds (AWS adds random suffixes)
     resources = [
-      "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:${var.db_credentials}*"
+      "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:${var.db_credentials}*",
+      "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:${var.warehouse_credentials}*"
     ]
   }
 }
@@ -320,13 +318,13 @@ data "aws_iam_policy_document" "scheduler_role_document" {
 }
 
 
-
+#Create scheduler role
 resource "aws_iam_role" "scheduler_role" {
   name        = "scheduler-role"
   assume_role_policy = data.aws_iam_policy_document.scheduler_role_document.json
 }
 
-
+#lets the scheduler trigger the state machine
 data "aws_iam_policy_document" "scheduler_policy_document" {
   statement {
     effect    = "Allow"
@@ -335,13 +333,13 @@ data "aws_iam_policy_document" "scheduler_policy_document" {
   }
 }
 
-
+#ceate the policy
 resource "aws_iam_policy" "scheduler_policy" {
   name = "scheduler-policy"
   policy = data.aws_iam_policy_document.scheduler_policy_document.json
 }
 
-# Attach scheduler policy to step function
+# Attach scheduler policy to scheduler role
 resource "aws_iam_role_policy_attachment" "scheduler_policy_attachment" {
   role       = aws_iam_role.scheduler_role.name
   policy_arn = aws_iam_policy.scheduler_policy.arn

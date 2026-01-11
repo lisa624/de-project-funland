@@ -22,5 +22,5 @@ resource "aws_s3_bucket" "processed_bucket" {
 
 resource "aws_s3_bucket" "layer_bucket"{
   bucket_prefix = "layer-bucket-"
-  
+
 }

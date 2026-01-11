@@ -59,6 +59,7 @@ def check_file_exists(bucket: str, key: str) -> bool:
         s3.head_object(Bucket=bucket, Key=key)
         return True
     except ClientError as e:
+        #print(e.response)
         if e.response["Error"]["Code"] == "404":
             return False
         raise
@@ -72,7 +73,8 @@ def dim_currency(last_checked, ingestion_bucket, processed_bucket):
     if not check_file_exists(ingestion_bucket, key):
         logger.info("No currency file found")
         return
-
+\
+    #load the currency CSV file from S3 into a pandas DataFrame
     df = wr.s3.read_csv(f"s3://{ingestion_bucket}/{key}")
     df = df.drop(columns=["Unnamed: 0", "created_at", "last_updated"], errors="ignore")
     df["currency_name"] = df["currency_code"] + "_Name"
@@ -94,7 +96,7 @@ def dim_location(last_checked, ingestion_bucket, processed_bucket):
     df = df.rename(columns={"address_id": "location_id"})
     df = df.drop(columns=["Unnamed: 0", "created_at", "last_updated"], errors="ignore")
 
-    # ✅ force postal_code to string (handles 28441 and 99305-7380)
+    # force postal_code to string (handles 28441 and 99305-7380)
     if "postal_code" in df.columns:
         df["postal_code"] = df["postal_code"].astype("string")
 
@@ -108,8 +110,6 @@ def dim_location(last_checked, ingestion_bucket, processed_bucket):
         df,
         f"s3://{processed_bucket}/dim_location/{last_checked}.parquet"
     )
-
-
 
 
 def dim_staff(last_checked, ingestion_bucket, processed_bucket):

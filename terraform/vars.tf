@@ -55,3 +55,8 @@ variable "db_credentials" {
   type = string
   sensitive = true
 }
+
+variable "warehouse_credentials" {
+  type = string
+  sensitive = true
+}

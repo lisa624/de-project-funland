@@ -57,18 +57,17 @@ resource "aws_s3_object" "load_zip" {
 #################################
 # 3) Upload the layer zip to S3
 #################################
-# This replaces your old "null_resource pip install" approach.
-# Build this zip in CI/CD (recommended), then Terraform just uploads it.
 
 resource "aws_s3_object" "etl_layer_zip" {
   bucket = aws_s3_bucket.layer_bucket.bucket
   key    = "layers/etl_layer.zip"
   source = "${path.module}/../build/etl_layer.zip"
 
-  # If the file doesn't exist, terraform apply will fail (good - it forces a proper build step in CI)
+  # If the file doesn't exist, terraform apply will fail
   etag = filemd5("${path.module}/../build/etl_layer.zip")
 }
 
+#Creates a Lambda Layer in AWS called etl_layer, using the zip in S3.
 resource "aws_lambda_layer_version" "etl_layer" {
   layer_name          = "etl_layer"
   compatible_runtimes = [var.python_runtime]
@@ -92,7 +91,7 @@ resource "aws_lambda_function" "extract_lambda_handler" {
   timeout     = 900
   memory_size = 3000
 
-  # S3 deployment (CI/CD friendly)
+  # S3 deployment
   s3_bucket = aws_s3_object.extract_zip.bucket
   s3_key    = aws_s3_object.extract_zip.key
 
@@ -165,6 +164,7 @@ resource "aws_lambda_function" "load_lambda_handler" {
   environment {
     variables = {
       S3_PROCESSED_BUCKET = aws_s3_bucket.processed_bucket.bucket
+      DB_SECRET_NAME_WAREHOUSE = var.warehouse_credentials
     }
   }
 }

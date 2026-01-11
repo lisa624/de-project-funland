@@ -41,7 +41,7 @@ def s3_client(aws_config):
 
 
 # -----------------------------
-# Fake DB Connection (unit-test safe)
+# Fake DB Connection
 # -----------------------------
 
 class FakeDBConnection:
@@ -127,10 +127,10 @@ class TestGetDBCredentials:
 
 
 # -----------------------------
-# create_db_connection tests (unit-style)
+# create_db_connection test
 # -----------------------------
-# Note: We do NOT actually connect to a real DB here (CI-friendly).
-# We just check that missing keys cause KeyError (good signal).
+# We do NOT actually connect to a real DB here
+# We just check that missing keys cause KeyError
 
 class TestDBConnection:
     def test_create_db_connection_raises_keyerror_if_missing_required_keys(self):

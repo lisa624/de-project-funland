@@ -77,7 +77,7 @@ def sm_client():
 
 @mock_aws
 def test_get_db_credentials_reads_secret(sm_client):
-    os.environ["DB_SECRET_NAME"] = "warehouse_creds"
+    os.environ["DB_SECRET_NAME_WAREHOUSE"] = "warehouse_creds"
 
     secret_value = {
         "host": "example",
@@ -94,10 +94,10 @@ def test_get_db_credentials_reads_secret(sm_client):
 
 @mock_aws
 def test_get_db_credentials_missing_env_raises(sm_client):
-    if "DB_SECRET_NAME" in os.environ:
-        del os.environ["DB_SECRET_NAME"]
+    if "DB_SECRET_NAME_WAREHOUSE" in os.environ:
+        del os.environ["DB_SECRET_NAME_WAREHOUSE"]
 
-    with pytest.raises(ValueError, match="DB_SECRET_NAME"):
+    with pytest.raises(ValueError, match="DB_SECRET_NAME_WAREHOUSE"):
         get_db_credentials(sm_client)
 
 
@@ -136,7 +136,6 @@ def test_insert_dataframe_inserts_rows():
 
     insert_dataframe(conn, "dim_currency", df)
 
-    # Should contain 2 INSERT statements
     inserts = [q for q in conn.queries if q.strip().upper().startswith("INSERT INTO")]
     assert len(inserts) == 2
 
@@ -149,13 +148,12 @@ def test_insert_dataframe_skips_empty_df():
 
 
 # -----------------------------
-# Integration-ish test: lambda_handler
+# lambda_handler
 # -----------------------------
 
 @mock_aws
 def test_lambda_handler_loads_tables_from_s3(s3_client, sm_client):
     """
-    Full flow:
     - Create processed bucket
     - Create required parquet files
     - Create secret
@@ -167,7 +165,7 @@ def test_lambda_handler_loads_tables_from_s3(s3_client, sm_client):
     _create_bucket(s3_client, processed_bucket)
 
     os.environ["S3_PROCESSED_BUCKET"] = processed_bucket
-    os.environ["DB_SECRET_NAME"] = "warehouse_creds"
+    os.environ["DB_SECRET_NAME_WAREHOUSE"] = "warehouse_creds"
 
     # Create secret
     sm_client.create_secret(

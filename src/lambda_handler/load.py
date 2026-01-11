@@ -22,11 +22,11 @@ def lambda_handler(event, context):
 
     Expected env vars:
       - S3_PROCESSED_BUCKET
-      - DB_SECRET_NAME   (Secrets Manager secret containing connection JSON)
+      - DB_SECRET_NAME_WAREHOUSE 
 
     Event:
       We accept either:
-        - event["timestamp"] (your new transform.py returns this)
+        - event["timestamp"] (transform.py returns this)
         - event["timestamp_to_transform"] (older pattern)
     """
 
@@ -60,7 +60,6 @@ def lambda_handler(event, context):
             df = wr.s3.read_parquet(path=s3_path)
             logger.info(f"Read {len(df)} rows from {s3_path}")
 
-            # For first-time pipelines: easiest reliable approach
             # - wipe table
             # - insert fresh
             truncate_table(conn, target_table)
@@ -68,7 +67,7 @@ def lambda_handler(event, context):
 
             loaded.append(target_table)
 
-        # Load dim_date (always present / fixed path in your transform.py)
+        # Load dim_date (always present / fixed path in transform.py)
         dim_date_s3_path = f"s3://{processed_bucket}/{DIM_DATE_KEY}"
         if s3_object_exists(processed_bucket, DIM_DATE_KEY):
             df_date = wr.s3.read_parquet(path=dim_date_s3_path)
@@ -128,13 +127,13 @@ def get_db_credentials(sm_client) -> dict:
         "password": "..."
       }
     """
-    secret_name = os.environ.get("DB_SECRET_NAME")
+    secret_name = os.environ.get("DB_SECRET_NAME_WAREHOUSE")
     if not secret_name:
-        raise ValueError("Missing environment variable DB_SECRET_NAME")
+        raise ValueError("Missing environment variable DB_SECRET_NAME_WAREHOUSE")
 
     try:
-        resp = sm_client.get_secret_value(SecretId=secret_name)
-        return json.loads(resp["SecretString"])
+        response = sm_client.get_secret_value(SecretId=secret_name)
+        return json.loads(response["SecretString"])
     except sm_client.exceptions.ResourceNotFoundException as e:
         logger.error(f"Secret not found: {secret_name}")
         raise
@@ -145,7 +144,7 @@ def get_db_credentials(sm_client) -> dict:
 
 def create_db_connection(db_credentials: dict) -> Connection:
     """
-    Creates a pg8000.native Connection to your warehouse DB.
+    Creates a pg8000.native Connection to the warehouse DB.
     """
     try:
         return Connection(
@@ -186,8 +185,9 @@ def s3_object_exists(bucket: str, key: str) -> bool:
 
 def truncate_table(conn: Connection, table_name: str) -> None:
     """
-    TRUNCATE table before loading (simple + deterministic for a first pipeline).
+    TRUNCATE table before loading (Delete all rows in the table before inserting new data)
     """
+    #does not delete the table itself — it only empties it
     sql = f"TRUNCATE TABLE {identifier(table_name)};"
     try:
         conn.run(sql)
@@ -202,7 +202,7 @@ def insert_dataframe(conn: Connection, table_name: str, df: pd.DataFrame) -> Non
     Inserts a pandas DataFrame into a Postgres table using pg8000.native.
 
     Notes:
-    - This does row-by-row INSERTs (fine for coursework / small-ish loads).
+    - row-by-row INSERTs
     - Converts NaN to None so Postgres accepts nulls.
     """
 
@@ -210,7 +210,7 @@ def insert_dataframe(conn: Connection, table_name: str, df: pd.DataFrame) -> Non
         logger.info(f"No rows to insert for table={table_name}")
         return
 
-    # Convert NaN to None (important for Postgres)
+    # Convert NaN to None
     df = df.where(pd.notnull(df), None)
 
     cols = list(df.columns)
